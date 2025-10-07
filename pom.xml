@@ -19,6 +19,26 @@
         <artifactId>selenium-java</artifactId>
         <version>4.21.0</version> <!-- Use latest -->
     </dependency>
+<dependency>
+    <groupId>org.apache.poi</groupId>
+    <artifactId>poi-ooxml</artifactId>
+    <version>5.2.3</version>
+</dependency>
+<dependency>
+    <groupId>com.slack.api</groupId>
+    <artifactId>slack-api-client</artifactId>
+    <version>1.27.2</version> <!-- Check for the latest version -->
+</dependency>
+<dependency>
+  <groupId>com.slack.api</groupId>
+  <artifactId>slack-api-client</artifactId>
+  <version>1.43.0</version>  <!-- check latest -->
+</dependency>
+<dependency>
+  <groupId>com.slack.api</groupId>
+  <artifactId>slack-api-model</artifactId>
+  <version>1.43.0</version>
+</dependency>
 
     <!-- WebDriver for Chrome -->
     <dependency>
