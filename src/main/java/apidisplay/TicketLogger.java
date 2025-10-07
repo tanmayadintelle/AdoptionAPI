@@ -1,9 +1,19 @@
 package apidisplay;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+
+import com.slack.api.Slack;
+import com.slack.api.methods.SlackApiException;
+import com.slack.api.methods.request.files.FilesUploadV2Request;
+import com.slack.api.methods.response.files.FilesUploadV2Response;
+
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -12,125 +22,107 @@ import com.google.gson.JsonObject;
 
 public class TicketLogger {
 
-	private static final String TOTAL_EST_URL = System.getenv("TOTAL_EST_URL");
-	private static final String LAST_WEEK_URL = System.getenv("LAST_WEEK_URL");
-	private static final String SLACK_WEBHOOK_URL = System.getenv("SLACK_WEBHOOK_URL");
-  // replace with your webhook
+	 private static final String TOTAL_EST_URL = System.getenv("TOTAL_EST_URL");
+	    private static final String LAST_WEEK_URL = System.getenv("LAST_WEEK_URL");
+	    private static final String SLACK_BOT_TOKEN = System.getenv("SLACK_BOT_TOKEN");  // Replace
+	    private static final String SLACK_CHANNEL_ID = System.getenv("SLACK_CHANNEL_ID");;         // Replace
 
     private static final Gson gson = new Gson();
+    private static final HttpClient httpClient = HttpClient.newHttpClient();
 
     public static void main(String[] args) {
         try {
-            JsonObject totalEstResp = fetchJson(TOTAL_EST_URL);
-            JsonObject lastWeekResp = fetchJson(LAST_WEEK_URL);
+            JsonObject total = fetchJson(TOTAL_EST_URL);
+            JsonObject lastWeek = fetchJson(LAST_WEEK_URL);
 
-            String slackText = buildSlackTable(totalEstResp, lastWeekResp);
+            byte[] excelBytes = createExcelFile(total, lastWeek);
 
-            postToSlack(SLACK_WEBHOOK_URL, slackText);
+            uploadFileV2(excelBytes, "UsageReport.xlsx");
 
-            System.out.println("Posted to Slack successfully.");
+            System.out.println("File upload via V2 succeeded.");
+        } catch (IOException | SlackApiException e) {
+            e.printStackTrace();
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
     private static JsonObject fetchJson(String url) throws Exception {
-        HttpClient client = HttpClient.newHttpClient();
         HttpRequest req = HttpRequest.newBuilder()
             .uri(URI.create(url))
             .GET()
             .build();
-        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
         return gson.fromJson(resp.body(), JsonObject.class);
     }
 
-    private static String buildSlackTable(JsonObject totalResp, JsonObject lastWeekResp) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("*Usage Report*\n");
+    private static byte[] createExcelFile(JsonObject total, JsonObject lastWeek) throws IOException {
+        Workbook workbook = new XSSFWorkbook();
+        Sheet sheet = workbook.createSheet("Usage Report");
 
-        // Use code block for monospaced font
-        sb.append("```");
-        // Header with aligned columns
-        sb.append(String.format("%-22s | %-12s | %-10s | %-20s\n",
-                "Agency", "Branch", "Medium", "EstTotal/RO/IB/OB"));
-        sb.append(String.format("%-22s-+-%-12s-+-%-10s-+-%-20s\n",
-                repeatChar('-', 22), repeatChar('-', 12), repeatChar('-', 10), repeatChar('-', 20)));
+        // Header
+        Row header = sheet.createRow(0);
+        String[] headers = { "Agency", "Branch", "Medium", "EstTotal", "RO", "IB", "OB", "Report Type" };
+        for (int i = 0; i < headers.length; i++) {
+            header.createCell(i).setCellValue(headers[i]);
+        }
 
+        int rowNum = 1;
+        rowNum = writeRowsToSheet(sheet, total, rowNum, "Total Estimates");
+        rowNum = writeRowsToSheet(sheet, lastWeek, rowNum, "Last Week Estimates");
 
-        appendRows(sb, totalResp, "Usage Report");
-        appendRows(sb, lastWeekResp, "Last Week Usage Report");
+        for (int i = 0; i < headers.length; i++) {
+            sheet.autoSizeColumn(i);
+        }
 
-        sb.append("```");
-        return sb.toString();
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        workbook.write(bos);
+        workbook.close();
+        return bos.toByteArray();
     }
 
-    private static void appendRows(StringBuilder sb, JsonObject respObj, String sectionLabel) {
-        if (respObj == null) return;
-
-        sb.append("\n").append(sectionLabel).append(":\n");
+    private static int writeRowsToSheet(Sheet sheet, JsonObject respObj, int startRow, String reportType) {
+        if (respObj == null) return startRow;
         JsonArray arr = respObj.getAsJsonArray("data");
-        if (arr == null) return;
+        if (arr == null) return startRow;
 
+        int rowNum = startRow;
         for (JsonElement je : arr) {
             JsonObject rec = je.getAsJsonObject();
-            String agency = rec.has("agencyName") && !rec.get("agencyName").isJsonNull()
-                    ? trimTo(rec.get("agencyName").getAsString(), 20)
-                    : "null";
-            String branch = rec.has("branchName") && !rec.get("branchName").isJsonNull()
-                    ? trimTo(rec.get("branchName").getAsString(), 8)
-                    : "null";
-            String medium = rec.has("medium") && !rec.get("medium").isJsonNull()
-                    ? trimTo(rec.get("medium").getAsString(), 8)
-                    : "null";
-
-            String estTotal = rec.has("estimateTotal") && !rec.get("estimateTotal").isJsonNull()
-                    ? rec.get("estimateTotal").getAsString()
-                    : "null";
-            String ro = rec.has("roTotal") && !rec.get("roTotal").isJsonNull()
-                    ? rec.get("roTotal").getAsString()
-                    : "null";
-            String ib = rec.has("ibTotal") && !rec.get("ibTotal").isJsonNull()
-                    ? rec.get("ibTotal").getAsString()
-                    : "null";
-            String ob = rec.has("obTotal") && !rec.get("obTotal").isJsonNull()
-                    ? rec.get("obTotal").getAsString()
-                    : "null";
-
-            String combined = String.format("%s/%s/%s/%s", estTotal, ro, ib, ob);
-
-            sb.append(String.format("%-22s | %-12s | %-10s | %-20s\n",
-                    trimTo(agency, 22),
-                    trimTo(branch, 12),
-                    trimTo(medium, 10),
-                    combined));
-
+            Row row = sheet.createRow(rowNum++);
+            row.createCell(0).setCellValue(getSafeString(rec, "agencyName"));
+            row.createCell(1).setCellValue(getSafeString(rec, "branchName"));
+            row.createCell(2).setCellValue(getSafeString(rec, "medium"));
+            row.createCell(3).setCellValue(getSafeString(rec, "estimateTotal"));
+            row.createCell(4).setCellValue(getSafeString(rec, "roTotal"));
+            row.createCell(5).setCellValue(getSafeString(rec, "ibTotal"));
+            row.createCell(6).setCellValue(getSafeString(rec, "obTotal"));
+            row.createCell(7).setCellValue(reportType);
         }
+        return rowNum;
     }
 
-    private static String trimTo(String s, int maxLen) {
-        if (s == null) return "null";
-        if (s.length() >= maxLen) return s.substring(0, maxLen);
-        return String.format("%-" + maxLen + "s", s);  // pad with spaces
+    private static String getSafeString(JsonObject obj, String key) {
+        return obj.has(key) && !obj.get(key).isJsonNull() ? obj.get(key).getAsString() : "";
     }
 
+    private static void uploadFileV2(byte[] fileBytes, String filename) throws IOException, SlackApiException {
+        Slack slack = Slack.getInstance();
 
-    private static String repeatChar(char c, int count) {
-        return new String(new char[count]).replace('\0', c);
-    }
+        FilesUploadV2Request req = FilesUploadV2Request.builder()
+                .token(SLACK_BOT_TOKEN)
+                .channel(SLACK_CHANNEL_ID)
+                .filename(filename)
+                .fileData(fileBytes)
+                .initialComment("Here is the latest usage report")
+                .title("UsageReport")
+                .build();
 
-    private static void postToSlack(String webhookUrl, String text) throws Exception {
-        JsonObject payload = new JsonObject();
-        payload.addProperty("text", text);
+        FilesUploadV2Response resp = slack.methods().filesUploadV2(req);
 
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest req = HttpRequest.newBuilder()
-            .uri(URI.create(webhookUrl))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(gson.toJson(payload)))
-            .build();
-        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString());
-
-        System.out.println("Slack API response: " + resp.statusCode() + " — " + resp.body());
+        if (!resp.isOk()) {
+            throw new RuntimeException("Upload V2 failed: " + resp.getError());
+        }
+        System.out.println("V2 upload OK, file data: " + resp.getFiles());
     }
 }
