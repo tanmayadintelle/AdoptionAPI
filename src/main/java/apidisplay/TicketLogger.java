@@ -9,7 +9,9 @@ import java.net.http.HttpResponse;
 
 import com.slack.api.Slack;
 import com.slack.api.methods.SlackApiException;
+import com.slack.api.methods.request.chat.ChatPostMessageRequest;
 import com.slack.api.methods.request.files.FilesUploadV2Request;
+import com.slack.api.methods.response.chat.ChatPostMessageResponse;
 import com.slack.api.methods.response.files.FilesUploadV2Response;
 
 import org.apache.poi.ss.usermodel.*;
@@ -22,10 +24,10 @@ import com.google.gson.JsonObject;
 
 public class TicketLogger {
 
-	 private static final String TOTAL_EST_URL = System.getenv("TOTAL_EST_URL");
-	    private static final String LAST_WEEK_URL = System.getenv("LAST_WEEK_URL");
-	    private static final String SLACK_BOT_TOKEN = System.getenv("SLACK_BOT_TOKEN");  // Replace
-	    private static final String SLACK_CHANNEL_ID = System.getenv("SLACK_CHANNEL_ID");;         // Replace
+    private static final String TOTAL_EST_URL = System.getenv("TOTAL_EST_URL");
+    private static final String LAST_WEEK_URL = System.getenv("LAST_WEEK_URL");
+    private static final String SLACK_BOT_TOKEN = System.getenv("SLACK_BOT_TOKEN");
+    private static final String SLACK_CHANNEL_ID = System.getenv("SLACK_CHANNEL_ID");
 
     private static final Gson gson = new Gson();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
@@ -35,8 +37,22 @@ public class TicketLogger {
             JsonObject total = fetchJson(TOTAL_EST_URL);
             JsonObject lastWeek = fetchJson(LAST_WEEK_URL);
 
-            byte[] excelBytes = createExcelFile(total, lastWeek);
+            // Get top agency info and send Slack message
+            JsonObject topAgency = getTopAgencyByEstimate(total);
+            if (topAgency != null) {
+                String agencyName = getSafeString(topAgency, "agencyName");
+                String branchName = getSafeString(topAgency, "branchName");
+                String estimateTotal = getSafeString(topAgency, "estimateTotal");
 
+                String message = String.format(
+                    "*📊 Top Agency by Total Estimate Count:*\n• Agency: *%s*\n• Branch: *%s*\n• Estimates: *%s*",
+                    agencyName, branchName, estimateTotal
+                );
+
+                postSlackMessage(message);
+            }
+
+            byte[] excelBytes = createExcelFile(total, lastWeek);
             uploadFileV2(excelBytes, "UsageReport.xlsx");
 
             System.out.println("File upload via V2 succeeded.");
@@ -54,6 +70,49 @@ public class TicketLogger {
             .build();
         HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
         return gson.fromJson(resp.body(), JsonObject.class);
+    }
+
+    private static JsonObject getTopAgencyByEstimate(JsonObject totalData) {
+        JsonArray dataArray = totalData.getAsJsonArray("data");
+        JsonObject topAgency = null;
+        double maxEstimate = -1;
+
+        for (JsonElement elem : dataArray) {
+            JsonObject record = elem.getAsJsonObject();
+            double estimateTotal = 0;
+            if (record.has("estimateTotal") && !record.get("estimateTotal").isJsonNull()) {
+                try {
+                    estimateTotal = record.get("estimateTotal").getAsDouble();
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+            }
+
+            if (estimateTotal > maxEstimate) {
+                maxEstimate = estimateTotal;
+                topAgency = record;
+            }
+        }
+
+        return topAgency;
+    }
+
+    private static void postSlackMessage(String message) throws IOException, SlackApiException {
+        Slack slack = Slack.getInstance();
+        ChatPostMessageRequest request = ChatPostMessageRequest.builder()
+            .token(SLACK_BOT_TOKEN)
+            .channel(SLACK_CHANNEL_ID)
+            .text(message)
+            .mrkdwn(true)
+            .build();
+
+        ChatPostMessageResponse response = slack.methods().chatPostMessage(request);
+
+        if (!response.isOk()) {
+            throw new RuntimeException("Slack message failed: " + response.getError());
+        }
+
+        System.out.println("Slack message sent: " + message);
     }
 
     private static byte[] createExcelFile(JsonObject total, JsonObject lastWeek) throws IOException {
@@ -114,7 +173,7 @@ public class TicketLogger {
                 .channel(SLACK_CHANNEL_ID)
                 .filename(filename)
                 .fileData(fileBytes)
-                .initialComment("Here is the latest usage report")
+                .initialComment("Here is the latest usage report 📁")
                 .title("UsageReport")
                 .build();
 
