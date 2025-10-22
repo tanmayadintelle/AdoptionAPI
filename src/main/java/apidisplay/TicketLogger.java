@@ -9,9 +9,7 @@ import java.net.http.HttpResponse;
 
 import com.slack.api.Slack;
 import com.slack.api.methods.SlackApiException;
-import com.slack.api.methods.request.chat.ChatPostMessageRequest;
 import com.slack.api.methods.request.files.FilesUploadV2Request;
-import com.slack.api.methods.response.chat.ChatPostMessageResponse;
 import com.slack.api.methods.response.files.FilesUploadV2Response;
 
 import org.apache.poi.ss.usermodel.*;
@@ -24,10 +22,10 @@ import com.google.gson.JsonObject;
 
 public class TicketLogger {
 
-    private static final String TOTAL_EST_URL = System.getenv("TOTAL_EST_URL");
-    private static final String LAST_WEEK_URL = System.getenv("LAST_WEEK_URL");
-    private static final String SLACK_BOT_TOKEN = System.getenv("SLACK_BOT_TOKEN");
-    private static final String SLACK_CHANNEL_ID = System.getenv("SLACK_CHANNEL_ID");
+	 private static final String TOTAL_EST_URL = System.getenv("TOTAL_EST_URL");
+	    private static final String LAST_WEEK_URL = System.getenv("LAST_WEEK_URL");
+	    private static final String SLACK_BOT_TOKEN = System.getenv("SLACK_BOT_TOKEN");  // Replace
+	    private static final String SLACK_CHANNEL_ID = System.getenv("SLACK_CHANNEL_ID");;         // Replace
 
     private static final Gson gson = new Gson();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
@@ -38,18 +36,10 @@ public class TicketLogger {
             JsonObject lastWeek = fetchJson(LAST_WEEK_URL);
 
             byte[] excelBytes = createExcelFile(total, lastWeek);
+
             uploadFileV2(excelBytes, "UsageReport.xlsx");
 
-            JsonObject topAgency = getTopAgencyByEstimate(total);
-            if (topAgency != null) {
-                String agency = topAgency.has("agencyName") ? topAgency.get("agencyName").getAsString() : "Unknown";
-                String estimate = topAgency.has("estimateTotal") ? topAgency.get("estimateTotal").getAsString() : "0";
-                sendSlackMessage("🏆 *Top Agency by Estimate Total*: " + agency + " with estimate total of *" + estimate + "*.");
-            } else {
-                sendSlackMessage("⚠️ Could not determine top agency — data might be missing or malformed.");
-            }
-
-            System.out.println("File upload and message sent successfully.");
+            System.out.println("File upload via V2 succeeded.");
         } catch (IOException | SlackApiException e) {
             e.printStackTrace();
         } catch (Exception e) {
@@ -59,9 +49,9 @@ public class TicketLogger {
 
     private static JsonObject fetchJson(String url) throws Exception {
         HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .GET()
-                .build();
+            .uri(URI.create(url))
+            .GET()
+            .build();
         HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
         return gson.fromJson(resp.body(), JsonObject.class);
     }
@@ -70,8 +60,9 @@ public class TicketLogger {
         Workbook workbook = new XSSFWorkbook();
         Sheet sheet = workbook.createSheet("Usage Report");
 
-        String[] headers = { "Agency", "Branch", "Medium", "EstTotal", "RO", "IB", "OB", "Report Type" };
+        // Header
         Row header = sheet.createRow(0);
+        String[] headers = { "Agency", "Branch", "Medium", "EstTotal", "RO", "IB", "OB", "Report Type" };
         for (int i = 0; i < headers.length; i++) {
             header.createCell(i).setCellValue(headers[i]);
         }
@@ -91,9 +82,10 @@ public class TicketLogger {
     }
 
     private static int writeRowsToSheet(Sheet sheet, JsonObject respObj, int startRow, String reportType) {
-        if (respObj == null || !respObj.has("data") || !respObj.get("data").isJsonArray()) return startRow;
-
+        if (respObj == null) return startRow;
         JsonArray arr = respObj.getAsJsonArray("data");
+        if (arr == null) return startRow;
+
         int rowNum = startRow;
         for (JsonElement je : arr) {
             JsonObject rec = je.getAsJsonObject();
@@ -122,7 +114,7 @@ public class TicketLogger {
                 .channel(SLACK_CHANNEL_ID)
                 .filename(filename)
                 .fileData(fileBytes)
-                .initialComment("📊 Here is the latest usage report")
+                .initialComment("Here is the latest usage report")
                 .title("UsageReport")
                 .build();
 
@@ -131,55 +123,6 @@ public class TicketLogger {
         if (!resp.isOk()) {
             throw new RuntimeException("Upload V2 failed: " + resp.getError());
         }
-    }
-
-    private static void sendSlackMessage(String message) throws IOException, SlackApiException {
-        Slack slack = Slack.getInstance();
-        ChatPostMessageRequest request = ChatPostMessageRequest.builder()
-                .token(SLACK_BOT_TOKEN)
-                .channel(SLACK_CHANNEL_ID)
-                .text(message)
-                .build();
-
-        ChatPostMessageResponse response = slack.methods().chatPostMessage(request);
-        if (!response.isOk()) {
-            throw new RuntimeException("Slack message failed: " + response.getError());
-        }
-    }
-
-    private static JsonObject getTopAgencyByEstimate(JsonObject totalData) {
-        if (totalData == null || !totalData.has("data") || totalData.get("data").isJsonNull()) {
-            System.out.println("⚠️ No 'data' found in totalData response.");
-            return null;
-        }
-
-        JsonElement dataElem = totalData.get("data");
-        if (!dataElem.isJsonArray()) {
-            System.out.println("⚠️ 'data' is not a JsonArray.");
-            return null;
-        }
-
-        JsonArray dataArray = dataElem.getAsJsonArray();
-        JsonObject topAgency = null;
-        double maxEstimate = -1;
-
-        for (JsonElement elem : dataArray) {
-            JsonObject record = elem.getAsJsonObject();
-            double estimateTotal = 0;
-            if (record.has("estimateTotal") && !record.get("estimateTotal").isJsonNull()) {
-                try {
-                    estimateTotal = record.get("estimateTotal").getAsDouble();
-                } catch (NumberFormatException e) {
-                    continue;
-                }
-            }
-
-            if (estimateTotal > maxEstimate) {
-                maxEstimate = estimateTotal;
-                topAgency = record;
-            }
-        }
-
-        return topAgency;
+        System.out.println("V2 upload OK, file data: " + resp.getFiles());
     }
 }
