@@ -42,9 +42,11 @@
 	
 	            JsonObject topAgency = getTopAgencyByEstimate(total);
 	            if (topAgency != null) {
-	              String agency = topAgency.has("Agency Name") ? topAgency.get("Agency Name").getAsString() : "Unknown";
-				  String estimate = topAgency.has("Total Estimate") ? topAgency.get("Total Estimate").getAsString() : "0";
-				  sendSlackMessage("🏆 *Top Agency by Estimate Total*: " + agency + " with estimate total of *" + estimate + "*.");
+	                String agency = topAgency.has("Agency Name") ? topAgency.get("Agency Name").getAsString() : "Unknown";
+	                String estimate = topAgency.has("Total Estimate") ? topAgency.get("Total Estimate").getAsString() : "0";
+
+	                // Updated, concise CEO-friendly message
+	                sendSlackMessage("🏆 " + agency + " uses the most → " + estimate + " Total Estimates (highest count)");
 
 	            } else {
 	                sendSlackMessage("⚠️ Could not determine top agency — data might be missing or malformed.");
@@ -194,4 +196,5 @@
 	    	    return topAgency;
 	    	}
 	}
+
 
