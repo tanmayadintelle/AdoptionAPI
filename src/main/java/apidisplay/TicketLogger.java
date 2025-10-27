@@ -108,7 +108,7 @@
 	            JsonObject rec = je.getAsJsonObject();
 	            Row row = sheet.createRow(rowNum++);
 	            row.createCell(0).setCellValue(getSafeString(rec, "Agency Name"));
-	            row.createCell(1).setCellValue(getSafeString(rec, "Branch Name"));
+	            row.createCell(1).setCellValue(getSafeString(rec, "BranchName"));
 	            row.createCell(2).setCellValue(getSafeString(rec, "Medium"));
 	            row.createCell(3).setCellValue(getSafeString(rec, "Total Estimate"));
 	            row.createCell(4).setCellValue(getSafeString(rec, "Total RO"));
