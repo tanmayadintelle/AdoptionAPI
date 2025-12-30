@@ -58,13 +58,12 @@ public class TicketLogger {
             }
 
             System.out.println("✅ Report uploaded & Slack message sent.");
-
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    // ---------------- API CALL ----------------
+    // ---------------- API ----------------
     private static JsonObject fetchJson(String url) throws Exception {
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -101,7 +100,6 @@ public class TicketLogger {
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         workbook.write(bos);
         workbook.close();
-
         return bos.toByteArray();
     }
 
@@ -127,13 +125,15 @@ public class TicketLogger {
         return rowNum;
     }
 
-    // ---------------- TOP/BOTTOM LOGIC ----------------
+    // ---------------- TOP/BOTTOM ----------------
     static class AgencyEstimate {
         String agency;
+        String branch;
         double estimate;
 
-        AgencyEstimate(String agency, double estimate) {
+        AgencyEstimate(String agency, String branch, double estimate) {
             this.agency = agency;
+            this.branch = branch;
             this.estimate = estimate;
         }
     }
@@ -147,14 +147,16 @@ public class TicketLogger {
 
         for (JsonElement e : table) {
             JsonObject r = e.getAsJsonObject();
+
             String agency = getSafe(r, "Agency Name");
+            String branch = getSafe(r, "BranchName");
             double est = 0;
 
             try {
                 est = r.get("Total Estimate").getAsDouble();
             } catch (Exception ignored) {}
 
-            list.add(new AgencyEstimate(agency, est));
+            list.add(new AgencyEstimate(agency, branch, est));
         }
 
         list.sort((a, b) -> Double.compare(b.estimate, a.estimate));
@@ -164,9 +166,13 @@ public class TicketLogger {
     private static String formatAgencyList(String title, List<AgencyEstimate> list) {
         StringBuilder sb = new StringBuilder(title).append("\n");
         int i = 1;
+
         for (AgencyEstimate a : list) {
             sb.append(i++).append(". ")
               .append(a.agency)
+              .append(" (")
+              .append(a.branch)
+              .append(")")
               .append(" → ")
               .append(a.estimate)
               .append("\n");
@@ -205,7 +211,7 @@ public class TicketLogger {
         if (!resp.isOk()) throw new RuntimeException(resp.getError());
     }
 
-    // ---------------- UTILS ----------------
+    // ---------------- UTIL ----------------
     private static String getSafe(JsonObject o, String k) {
         return o.has(k) && !o.get(k).isJsonNull() ? o.get(k).getAsString() : "";
     }
